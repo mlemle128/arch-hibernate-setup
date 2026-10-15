@@ -14,6 +14,10 @@ no disk-backed swap big enough to hold RAM. zram doesn't count — it lives in R
    regenerates `/boot/grub/grub.cfg`.
 3. Adds the `resume` hook after `lvm2` in `/etc/mkinitcpio.conf` and rebuilds
    the initramfs.
+4. Adds a `systemd-logind` drop-in setting `ProtectHome=read-only`. By default
+   logind can't see anything under `/home`, so with the swapfile there
+   `CanHibernate` fails with "No such file or directory" and the menu option
+   stays hidden.
 
 Backups are written to `/etc/default/grub.bak` and `/etc/mkinitcpio.conf.bak`.
 

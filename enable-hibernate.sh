@@ -31,4 +31,12 @@ grep -qE '^HOOKS=.*\bresume\b' /etc/mkinitcpio.conf || sed -i -E 's/^(HOOKS=.*\b
 grep ^HOOKS /etc/mkinitcpio.conf
 mkinitcpio -P
 
+# 5. logind runs with ProtectHome=yes, so it can't see a swapfile under /home
+#    and CanHibernate returns ENOENT. Give it read-only access.
+if [[ $SWAP == /home/* ]]; then
+    mkdir -p /etc/systemd/system/systemd-logind.service.d
+    printf '[Service]\nProtectHome=read-only\n' > /etc/systemd/system/systemd-logind.service.d/hibernate-swapfile.conf
+    systemctl daemon-reload
+fi
+
 echo "Done. Reboot, then Hibernate will appear in the Plasma menu."
