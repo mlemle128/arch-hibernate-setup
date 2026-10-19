@@ -7,7 +7,8 @@
 # Handles: swap partition or swapfile (ext4/xfs/btrfs), GRUB / systemd-boot /
 # UKI (/etc/kernel/cmdline), mkinitcpio (udev or systemd hooks) / dracut,
 # LVM and LUKS (resume after encrypt/lvm2), and logind's ProtectHome when the
-# swapfile lives under /home.
+# swapfile lives under /home. Also keeps python-validity fingerprint readers
+# working after resume.
 #
 # Usage:  sudo ./enable-hibernate.sh [--dry-run]
 # Env:    SWAPFILE=/swapfile   where to create a swapfile (default /swapfile)
@@ -163,6 +164,43 @@ if [[ -z $RESUME_DEV && $SWAPFILE == /home/* ]]; then
 		printf '[Service]\nProtectHome=read-only\n' > "$D/hibernate-swapfile.conf"
 		systemctl daemon-reload
 	fi
+fi
+
+# --- 5. python-validity fingerprint readers -----------------------------------------------
+# The sensor drops its TLS session when powered off, but the daemon's stop before
+# sleep can lose a race with a start job, so it may be frozen into the image still
+# holding the old session; after resume every request fails (<cmd< 0404).
+# Always restart it on resume.
+if systemctl cat python3-validity.service >/dev/null 2>&1; then
+	say "python-validity found: installing a sleep hook that restarts it on resume"
+	HOOK=/etc/systemd/system-sleep/python-validity
+	if ((DRY)); then echo "    [dry-run] write $HOOK"
+	else
+		mkdir -p "${HOOK%/*}"
+		cat > "$HOOK" <<'EOF'
+#!/bin/sh
+# Restart python-validity across suspend/hibernate (installed by enable-hibernate.sh).
+# The pre-sleep stop can be cancelled by a racing start job, so post always
+# does a full stop/reset/start: the sensor loses its TLS session on power-off.
+case "$1" in
+  pre)
+    systemctl stop open-fprintd.service python3-validity.service || true
+    ;;
+  post)
+    systemctl stop open-fprintd.service python3-validity.service || true
+    for id in 138a:0090 138a:0097 138a:009d 06cb:009a; do
+      usbreset "$id" >/dev/null 2>&1 || true
+    done
+    sleep 1
+    systemctl reset-failed python3-validity.service || true
+    systemctl --no-block start python3-validity.service open-fprintd.service
+    ;;
+esac
+exit 0
+EOF
+		chmod 755 "$HOOK"
+	fi
+	command -v usbreset >/dev/null || warn "usbreset not found (package usbutils); the hook will skip the USB reset"
 fi
 
 say "done$( ((DRY)) && echo ' (dry run, nothing changed)')"

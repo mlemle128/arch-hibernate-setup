@@ -30,6 +30,11 @@ This script fixes all of those.
    - **dracut:** regenerates (its resume module is included automatically).
 4. **logind.** If the swapfile is under `/home`, adds a drop-in giving
    `systemd-logind` read-only access to `/home`.
+5. **Fingerprint (python-validity).** If `python3-validity.service` exists
+   (Synaptics/Validity readers on ThinkPads, e.g. `06cb:009a`), installs
+   `/etc/systemd/system-sleep/python-validity`, which fully restarts the
+   driver and resets the sensor on every resume. Without it the fingerprint
+   stops working after hibernation (see below).
 
 Every file it edits is backed up first as `<file>.pre-hibernate`. Running it
 again is safe: it reuses the swapfile and replaces old `resume=` arguments.
@@ -90,10 +95,18 @@ cat /proc/cmdline        # resume= and resume_offset= present?
   `systemctl enable nvidia-suspend nvidia-hibernate nvidia-resume` and set
   `options nvidia NVreg_PreserveVideoMemoryAllocations=1`.
 
+- **Fingerprint login fails after resume** (python-validity / open-fprintd):
+  the sensor forgets its encrypted session when powered off, but the driver
+  can be restarted just before the hibernation snapshot and resume still
+  holding the old one. `journalctl -u python3-validity` then shows
+  `<cmd< 0404` for every request. The hook from step 5 fixes this. To recover
+  by hand: `sudo systemctl restart python3-validity open-fprintd`.
+
 ## Undo
 
 Restore the `*.pre-hibernate` backups, remove the swapfile line from
-`/etc/fstab`, delete `/etc/systemd/system/systemd-logind.service.d/hibernate-swapfile.conf`,
+`/etc/fstab`, delete `/etc/systemd/system/systemd-logind.service.d/hibernate-swapfile.conf`
+and `/etc/systemd/system-sleep/python-validity` (if present),
 then regenerate your bootloader config and initramfs.
 
 ## Licence
